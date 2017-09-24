@@ -33,3 +33,10 @@ par(mfrow = c(1,1))
 default_corplot <- default_noID_updated[sapply(default_noID_updated, function(x) is_integer(x) || is_double(x))]                                               
 corrplot(cor(default_corplot)) 
 
+#density plots
+lapply(names(default_noID_updated),
+  function(i) 
+    ggplot(default_noID_updated, aes_string(x=i, colour = as.factor(default_noID_updated$loan_status))) + geom_density())
+
+
+

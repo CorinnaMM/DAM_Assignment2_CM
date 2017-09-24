@@ -29,3 +29,6 @@ If we set up a VM /S3 machine on AWS we can keep the details in this document.
 3. Modelling
 4. Evaluation
 5. Deployment
+
+
+https://www.bls.gov/cew/cewedr10.htm - Codes to convert the postcode/US state Zip codes

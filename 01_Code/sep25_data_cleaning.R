@@ -187,3 +187,10 @@ data <- select(data, -funded_amnt_inv, -installment, -sub_grade, -total_pymnt_in
 write_csv(data, paste0(working_file_path,"clean_justified_data_25var.csv"))
 ### === END CLEAN
 
+str(data)
+table(data$loan_status)
+## make target binary
+data <- mutate(data, loan_status = if_else(loan_status == "Charged.Off",1,0))
+table(data$loan_status)
+
+write_csv(data, paste0(working_file_path,"modellingdata1.csv"))

@@ -1,10 +1,16 @@
+#imputing the data
 
+#https://www.r-bloggers.com/imputing-missing-data-with-r-mice-package/amp/
+#check for features (columns) and samples (rows) where the data is missing using a simple function
 pMiss <- function(x){sum(is.na(x))/length(x)*100}
 apply(validation_default, 2, pMiss)
 #install.packages("mice")
 library(mice)
+#understanding of the pattern of missing data
 md.pattern(validation_default)
+#imputing the missing data without the earliest credit line date variable
 validationData <- mice(validation_default[,-15],m=5,maxit=50,meth='pmm',seed=42)
+#see that the imputed data is following the distribution of the other data 
 densityplot(validationData)
 
 

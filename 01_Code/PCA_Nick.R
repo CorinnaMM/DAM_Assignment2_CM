@@ -100,29 +100,40 @@ dim(testing)
 
 xgb_control = trainControl(method = "cv",
                             number = 5,
-                            verboseIter = T, 
-                            returnData = F,
                             classProbs = T, 
                             summaryFunction = twoClassSummary, 
                             allowParallel = TRUE
 )
 
-#ridge hyperparams
+# XGB Hyperparams
+# tuning params for XGB best practice https://www.analyticsvidhya.com/blog/2016/03/complete-guide-parameter-tuning-xgboost-with-codes-python/
 xgb_hyperparams = expand.grid(nrounds = 1000,
                               eta = c(0.01, 0.001, 0.001),
                               max_depth = c(2,4,6,8,10),
                               gamma = c(0,1), #default = 0 
                               colsample_bytree = c(0.6,0.8,1), 
                               min_child_weight = 1, 
-                              subsample = c(0.5,0.75,1)  
+                              subsample = 0.5  
 )
+
+# Consider scaling this back as model takes a while to train
+#xgb_hyperparams = expand.grid(nrounds = 1000,
+#                              eta = c(0.01, 0.001, 0.001),
+#                              max_depth = c(2,4,6,8,10),
+#                              gamma = c(0,1), #default = 0 
+#                              colsample_bytree = c(0.6,0.8,1), 
+#                              min_child_weight = 1, 
+#                              subsample = c(0.5,0.75,1)  
+#)
+
 
 x_train <- model.matrix( ~ ., training[,-14])
 
-xgb_fit = train(x = x_train, y = as.factor(training$loan_status),
+xgb_fit = train(x = x_train, y = training$loan_status,
                   method='xgbTree',
-                  trControl= trainControl, 
-                  tuneGrid = xgb_hyperparams)
+                  trControl= xgb_control, 
+                  tuneGrid = xgb_hyperparams, 
+                  metric = 'ROC')
 
 
 #Models using upsampling and downsampling
@@ -131,13 +142,16 @@ xgb_fit = train(x = x_train, y = as.factor(training$loan_status),
 
 
 
-#ridge_fit$results
-#print(ridge_fit)
+xgb_fit$results
+print(xgb_fit)
 
-#newx = model.matrix( ~ ., testing[,4:16])
+newx = model.matrix( ~ ., testing[,-14])
 
-#ridge_pred = predict(ridge_fit, newx, type = "raw")
-#confusionMatrix(data = ridge_pred, testing$Target, mode = "everything", positive="X1")
+ridge_pred = predict(xgb_fit, newx, type = "raw")
+confusionMatrix(data = ridge_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
+
+
+count(df$loan_status)
 
 #ridge_fit
 

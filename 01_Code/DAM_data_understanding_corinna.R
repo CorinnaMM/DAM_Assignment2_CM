@@ -269,7 +269,4 @@ table()
 # qplot(test$test, test$loan_amnt, geom ="point", colour = as.factor(test$grade))
 
 ## PCA
-## TREE 
-## RPART with PRUNE
-## RF
-## SVM
+

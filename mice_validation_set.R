@@ -12,7 +12,8 @@ md.pattern(validation_default)
 validationData <- mice(validation_default[,-15],m=5,maxit=50,meth='pmm',seed=42)
 #see that the imputed data is following the distribution of the other data 
 densityplot(validationData)
-
+#turn it back into a data frame 
+validation_test <- complete(validationData, include=TRUE)
 
 #> apply(validation_default, 2, pMiss)
 #member_id            loan_amnt          funded_amnt 

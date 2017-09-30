@@ -31,32 +31,6 @@ count(df$loan_status)
 #check for duplicated values
 sum(duplicated(df)==TRUE)
 
-# Plot histogram grid
-#factor.variables = sapply(df, is.factor)
-#factors.df <- df[, factor.variables]
-#factors.df
-
-# 15 factor variables to loop through
-#dim(factors.df)
-
-#plot all factor data in grouped plot
-#par(mfrow= c(4,4))
-#vars = 15
-#startVar = 1
-#while(startVar <= vars ){
-#  barplot(prop.table(table(factors.df[,startVar])), main=colnames(factors.df)[startVar],las = 2)
-#  startVar = startVar + 1
-#}
-
-#plot each graph separately
-#par(mfrow= c(1,1))
-#vars = 15
-#startVar = 1
-#while(startVar <= vars ){
-#  barplot(prop.table(table(factors.df[,startVar])), main=colnames(factors.df)[startVar],las = 2)
-#  startVar = startVar + 1
-#}
-
 pca_var <- c(2,3,4,7,25:28)
 
 pcadf = df[,pca_var]
@@ -107,12 +81,12 @@ xgb_control = trainControl(method = "cv",
 
 # XGB Hyperparams
 # tuning params for XGB best practice https://www.analyticsvidhya.com/blog/2016/03/complete-guide-parameter-tuning-xgboost-with-codes-python/
-xgb_hyperparams = expand.grid(nrounds = 1000,
-                              eta = c(0.01, 0.001, 0.001),
-                              max_depth = c(2,4,6,8,10),
-                              gamma = c(0,1), #default = 0 
-                              colsample_bytree = c(0.6,0.8,1), 
-                              min_child_weight = 1, 
+xgb_hyperparams = expand.grid(nrounds = 100,
+                              eta = 0.1,
+                              max_depth = c(3,6),
+                              gamma = 1, #default = 0 
+                              colsample_bytree = c(0.5,0.7), 
+                              min_child_weight = 2, 
                               subsample = 0.5  
 )
 
@@ -125,7 +99,6 @@ xgb_hyperparams = expand.grid(nrounds = 1000,
 #                              min_child_weight = 1, 
 #                              subsample = c(0.5,0.75,1)  
 #)
-
 
 x_train <- model.matrix( ~ ., training[,-14])
 
@@ -140,8 +113,6 @@ xgb_fit = train(x = x_train, y = training$loan_status,
 #https://topepo.github.io/caret/subsampling-for-class-imbalances.html 
 
 
-
-
 xgb_fit$results
 print(xgb_fit)
 
@@ -150,34 +121,75 @@ newx = model.matrix( ~ ., testing[,-14])
 ridge_pred = predict(xgb_fit, newx, type = "raw")
 confusionMatrix(data = ridge_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
 
-
 count(df$loan_status)
 
-#ridge_fit
-
-#testing$probability = predict(ridge_fit, newx, type = "prob")[, 1]
-#training$probability = predict(ridge_fit, x_train, type = "prob")[, 1]
+testing$probability = predict(xgb_fit, newx, type = "prob")[, 1]
+training$probability = predict(xgb_fit, x_train, type = "prob")[, 1]
 
 
-
-#to tidy up and test pca 
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
-#
 #===============================================================
-# Lasso Model
+# Ridge Model - Finished Running
 #===============================================================
 
-df$Target = make.names(df$Target)
+set.seed(42)
+train = createDataPartition(y = df$loan_status, p = 0.7, list = F)
+
+# drop ID column
+training = df[train,]
+testing = df[-train,]
+
+str(training)
+str(testing)
+dim(training)
+
+trainControl = trainControl(method = "cv",
+                            number = 5,
+                            classProbs = T, 
+                            summaryFunction = twoClassSummary, 
+                            allowParallel = TRUE
+)
+
+
+#gradient boosted hyperparams
+ridge_hyperparams = expand.grid(alpha = 0, 
+                                lambda = seq(0.0001, 1, length = 100))
+
+x_train <- model.matrix( ~ ., training[,-14])
+
+ridge_fit = train(x = x_train, y = training$loan_status,
+                  method='glmnet',
+                  trControl= trainControl, 
+                  tuneGrid = ridge_hyperparams,
+                  metric = "ROC" )
+
+ridge_fit$results
+print(ridge_fit)
+
+newx = model.matrix( ~ ., testing[,-14])
+
+ridge_pred = predict(ridge_fit, newx, type = "raw")
+confusionMatrix(data = ridge_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
+
+ridge_fit
+
+testing$probability = predict(ridge_fit, newx, type = "prob")[, 1]
+training$probability = predict(ridge_fit, x_train, type = "prob")[, 1]
+
+ridge_importance = varImp(ridge_fit)$importance
+ridge_importance$variable = rownames(ridge_importance)
+ridge_importance = ridge_importance[order(ridge_importance$Overall, decreasing = T), ]$variable
+
+# partial dependence plots
+par(mfrow = c(2,2))
+for (var in ridge_importance[1:length(ridge_importance)]) {
+  plot.glmnet(ridge_fit$finalModel, i.var = var, type = "response")
+}
+
+
+#===============================================================
+# Lasso Model - Finished Running
+#===============================================================
+
 set.seed(42)
 train = createDataPartition(y = df$Target, p = 0.7, list = F)
 
@@ -195,10 +207,10 @@ trainControl = trainControl(method = "cv",
 #gradient boosted hyperparams
 lasso_hyperparams = expand.grid(alpha = 1, 
                                 lambda = seq(0.0001, 1, length = 100))
-set.seed(42)
-x_train <- model.matrix( ~ ., training[,4:16])
-x_train
-lasso_fit = train(x = x_train, y = training$Target,
+
+x_train <- model.matrix( ~ ., training[,-14])
+
+lasso_fit = train(x = x_train, y = training$loan_status,
                   method='glmnet',
                   trControl= trainControl, 
                   tuneGrid = lasso_hyperparams,
@@ -206,28 +218,22 @@ lasso_fit = train(x = x_train, y = training$Target,
 
 print(lasso_fit)
 
-newx = model.matrix( ~ ., testing[,4:16])
+newx = model.matrix( ~ ., testing[,-14])
 
 lasso_pred = predict(lasso_fit, newx, type = "raw")
-confusionMatrix(data = lasso_pred, testing$Target, mode = "everything", positive="X1")
+confusionMatrix(data = lasso_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
 
 testing$probability = predict(lasso_fit, newx, type = "prob")[, 1]
 training$probability = predict(lasso_fit, x_train, type = "prob")[, 1]
-
-lasso_importance = varImp(lasso_fit)$importance
-lasso_importance$variable = rownames(lasso_importance)
-lasso_importance = lasso_importance[order(lasso_importance$Overall, decreasing = T), ]$variable
-lasso_importance
 
 #===============================================================
 # Part 2 - Tree based classification model - basic decision tree
 #===============================================================
 
 #===============================================================
-# Gradient Boosted Model
+# Gradient Boosted Model - TIMEOUT
 #===============================================================
 
-df$Target = make.names(df$Target)
 set.seed(42)
 train = createDataPartition(y = df$Target, p = 0.7, list = F)
 
@@ -248,9 +254,9 @@ gb_hyperparams = expand.grid(interaction.depth = c(3,5),
                              shrinkage = 0.05,
                              n.minobsinnode = c(10,20))
 
-# need to fix this 
-set.seed(42)
-gbm_fit = train(x = training[,4:16], y = training$Target,
+x_train <- model.matrix( ~ ., training[,-14])
+
+gbm_fit = train(x = x_train, y = training$loan_status,
                 method = "gbm",
                 trControl = trainControl,
                 tuneGrid = gb_hyperparams,
@@ -259,8 +265,10 @@ gbm_fit = train(x = training[,4:16], y = training$Target,
 gbm_fit$results
 print(gbm_fit)
 
-gbm_pred = predict(gbm_fit, testing, type = "raw")
-confusionMatrix(gbm_pred, testing$Target, mode = "everything", positive="X1")
+newx = model.matrix( ~ ., testing[,-14])
+
+gbm_pred = predict(gbm_fit, newx, type = "raw")
+confusionMatrix(gbm_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
 
 
 testing$probability = predict(gbm_fit, testing, type = "prob")[, 1]
@@ -277,7 +285,7 @@ for (var in gbm_importance[1:length(gbm_importance)]) {
 }
 
 #===============================================================
-#Random Forest Model 
+#Random Forest Model - TIMEOUT
 #===============================================================
 
 df$Target = make.names(df$Target)
@@ -300,7 +308,9 @@ rf_hyperparams = expand.grid(mtry = c(4,5,6))
 
 # need to fix this 
 set.seed(42)
-rf_fit = train(x = training[,4:16], y = training$Target,
+x_train <- model.matrix( ~ ., training[,-14])
+
+rf_fit = train(x = x_train, y = training$loan_status,
                method = "rf",
                trControl = trainControl,
                tuneGrid = rf_hyperparams,
@@ -310,7 +320,7 @@ rf_fit$results
 print(rf_fit)
 
 rf_pred = predict(rf_fit, testing, type = "raw")
-confusionMatrix(rf_pred, testing$Target, mode = "everything", positive="X1")
+confusionMatrix(rf_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
 
 testing$probability = predict(rf_fit, testing, type = "prob")[, 1]
 training$probability = predict(rf_fit, training, type = "prob")[, 1]

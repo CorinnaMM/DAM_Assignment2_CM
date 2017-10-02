@@ -126,6 +126,55 @@ count(df$loan_status)
 testing$probability = predict(xgb_fit, newx, type = "prob")[, 1]
 training$probability = predict(xgb_fit, x_train, type = "prob")[, 1]
 
+#===============================================================
+# Lasso Model - Finished Running
+#===============================================================
+
+set.seed(42)
+train = createDataPartition(y = df$loan_status, p = 0.7, list = F)
+
+# drop ID column
+training = df[train,]
+testing = df[-train,]
+
+trainControl = trainControl(method = "cv",
+                            number = 5,
+                            classProbs = T, 
+                            summaryFunction = twoClassSummary, 
+                            allowParallel = TRUE
+)
+
+#gradient boosted hyperparams
+lasso_hyperparams = expand.grid(alpha = 1, 
+                                lambda = seq(0.0001, 1, length = 100))
+
+x_train <- model.matrix( ~ ., training[,-14])
+
+lasso_fit = train(x = x_train, y = training$loan_status,
+                  method='glmnet',
+                  trControl= trainControl, 
+                  tuneGrid = lasso_hyperparams,
+                  metric = "ROC" )
+
+print(lasso_fit)
+
+newx = model.matrix( ~ ., testing[,-14])
+
+lasso_pred = predict(lasso_fit, newx, type = "raw")
+confusionMatrix(data = lasso_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
+
+testing$probability = predict(lasso_fit, newx, type = "prob")[, 1]
+training$probability = predict(lasso_fit, x_train, type = "prob")[, 1]
+
+
+#validation data set
+validation = read.csv("repurchase_validation.csv")
+#validation$validation_pred = predict(rf_fit, validation, type = "raw")
+#validation$probability = predict(rf_fit, validation, type = "prob")[, 1]
+#write.csv(validation, "validation.csv")
+
+#count(validation$validation_pred)
+
 
 #===============================================================
 # Ridge Model - Finished Running
@@ -184,47 +233,6 @@ par(mfrow = c(2,2))
 for (var in ridge_importance[1:length(ridge_importance)]) {
   plot.glmnet(ridge_fit$finalModel, i.var = var, type = "response")
 }
-
-
-#===============================================================
-# Lasso Model - Finished Running
-#===============================================================
-
-set.seed(42)
-train = createDataPartition(y = df$loan_status, p = 0.7, list = F)
-
-# drop ID column
-training = df[train,]
-testing = df[-train,]
-
-trainControl = trainControl(method = "cv",
-                            number = 5,
-                            classProbs = T, 
-                            summaryFunction = twoClassSummary, 
-                            allowParallel = TRUE
-)
-
-#gradient boosted hyperparams
-lasso_hyperparams = expand.grid(alpha = 1, 
-                                lambda = seq(0.0001, 1, length = 100))
-
-x_train <- model.matrix( ~ ., training[,-14])
-
-lasso_fit = train(x = x_train, y = training$loan_status,
-                  method='glmnet',
-                  trControl= trainControl, 
-                  tuneGrid = lasso_hyperparams,
-                  metric = "ROC" )
-
-print(lasso_fit)
-
-newx = model.matrix( ~ ., testing[,-14])
-
-lasso_pred = predict(lasso_fit, newx, type = "raw")
-confusionMatrix(data = lasso_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
-
-testing$probability = predict(lasso_fit, newx, type = "prob")[, 1]
-training$probability = predict(lasso_fit, x_train, type = "prob")[, 1]
 
 #===============================================================
 # Part 2 - Tree based classification model - basic decision tree

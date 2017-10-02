@@ -57,75 +57,6 @@ plot(cumsum(pve), type = 'b', main = "Cumulative Variance Explained",
 
 #come back to this and revaluate groupings
 
-
-#=====================================================
-# XGBoost Model w/ k = 5 fold cv plus grid search
-#=====================================================
-
-set.seed(42)
-train = createDataPartition(y = df$loan_status, p = 0.7, list = F)
-
-# drop ID column
-training = df[train,]
-testing = df[-train,]
-
-dim(training)
-dim(testing)
-
-xgb_control = trainControl(method = "cv",
-                           number = 5,
-                           classProbs = T, 
-                           summaryFunction = twoClassSummary, 
-                           allowParallel = TRUE
-)
-
-# XGB Hyperparams
-# tuning params for XGB best practice https://www.analyticsvidhya.com/blog/2016/03/complete-guide-parameter-tuning-xgboost-with-codes-python/
-xgb_hyperparams = expand.grid(nrounds = 100,
-                              eta = 0.1,
-                              max_depth = c(3,6),
-                              gamma = 1, #default = 0 
-                              colsample_bytree = c(0.5,0.7), 
-                              min_child_weight = 2, 
-                              subsample = 0.5  
-)
-
-# Consider scaling this back as model takes a while to train
-#xgb_hyperparams = expand.grid(nrounds = 1000,
-#                              eta = c(0.01, 0.001, 0.001),
-#                              max_depth = c(2,4,6,8,10),
-#                              gamma = c(0,1), #default = 0 
-#                              colsample_bytree = c(0.6,0.8,1), 
-#                              min_child_weight = 1, 
-#                              subsample = c(0.5,0.75,1)  
-#)
-
-x_train <- model.matrix( ~ ., training[,-14])
-
-xgb_fit = train(x = x_train, y = training$loan_status,
-                method='xgbTree',
-                trControl= xgb_control, 
-                tuneGrid = xgb_hyperparams, 
-                metric = 'ROC')
-
-
-#Models using upsampling and downsampling
-#https://topepo.github.io/caret/subsampling-for-class-imbalances.html 
-
-
-xgb_fit$results
-print(xgb_fit)
-
-newx = model.matrix( ~ ., testing[,-14])
-
-ridge_pred = predict(xgb_fit, newx, type = "raw")
-confusionMatrix(data = ridge_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
-
-count(df$loan_status)
-
-testing$probability = predict(xgb_fit, newx, type = "prob")[, 1]
-training$probability = predict(xgb_fit, x_train, type = "prob")[, 1]
-
 #===============================================================
 # Lasso Model - Finished Running
 #===============================================================
@@ -167,13 +98,40 @@ testing$probability = predict(lasso_fit, newx, type = "prob")[, 1]
 training$probability = predict(lasso_fit, x_train, type = "prob")[, 1]
 
 
-#validation data set
-validation = read.csv("repurchase_validation.csv")
-#validation$validation_pred = predict(rf_fit, validation, type = "raw")
-#validation$probability = predict(rf_fit, validation, type = "prob")[, 1]
-#write.csv(validation, "validation.csv")
+#run through validation data and prepare results
+validation = read.csv("~/Documents/GitHub/DAM_Assignment2_CM/02_Working_data_folder/validation.csv")
+validationx = model.matrix( ~ ., validation[,-14])
+
+str(validation)
+str(training)
+
+validation_pred = predict(lasso_fit, validationx, type = "raw")
+validation$validation_pred = predict(lasso_fit, validationx, type = "raw")
+validation$probability = predict(lasso_fit, validationx, type = "prob")[, 1]
+
+confusionMatrix(data = validation_pred, validation$loan_status, mode = "everything", positive="Charged.Off")
+
+validation_pred$results
+
+write.csv(validation_pred, "results.csv")
 
 #count(validation$validation_pred)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #===============================================================
@@ -357,4 +315,73 @@ for (i in seq_along(rf_importance)[1:14]) {
 #write.csv(validation, "validation.csv")
 
 #count(validation$validation_pred)
+
+#=====================================================
+# XGBoost Model w/ k = 5 fold cv plus grid search
+#=====================================================
+
+set.seed(42)
+train = createDataPartition(y = df$loan_status, p = 0.7, list = F)
+
+# drop ID column
+training = df[train,]
+testing = df[-train,]
+
+dim(training)
+dim(testing)
+
+xgb_control = trainControl(method = "cv",
+                           number = 5,
+                           classProbs = T, 
+                           summaryFunction = twoClassSummary, 
+                           allowParallel = TRUE
+)
+
+# XGB Hyperparams
+# tuning params for XGB best practice https://www.analyticsvidhya.com/blog/2016/03/complete-guide-parameter-tuning-xgboost-with-codes-python/
+xgb_hyperparams = expand.grid(nrounds = 100,
+                              eta = 0.1,
+                              max_depth = c(3,6),
+                              gamma = 1, #default = 0 
+                              colsample_bytree = c(0.5,0.7), 
+                              min_child_weight = 2, 
+                              subsample = 0.5  
+)
+
+# Consider scaling this back as model takes a while to train
+#xgb_hyperparams = expand.grid(nrounds = 1000,
+#                              eta = c(0.01, 0.001, 0.001),
+#                              max_depth = c(2,4,6,8,10),
+#                              gamma = c(0,1), #default = 0 
+#                              colsample_bytree = c(0.6,0.8,1), 
+#                              min_child_weight = 1, 
+#                              subsample = c(0.5,0.75,1)  
+#)
+
+x_train <- model.matrix( ~ ., training[,-14])
+
+xgb_fit = train(x = x_train, y = training$loan_status,
+                method='xgbTree',
+                trControl= xgb_control, 
+                tuneGrid = xgb_hyperparams, 
+                metric = 'ROC')
+
+
+#Models using upsampling and downsampling
+#https://topepo.github.io/caret/subsampling-for-class-imbalances.html 
+
+
+xgb_fit$results
+print(xgb_fit)
+
+newx = model.matrix( ~ ., testing[,-14])
+
+ridge_pred = predict(xgb_fit, newx, type = "raw")
+confusionMatrix(data = ridge_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
+
+count(df$loan_status)
+
+testing$probability = predict(xgb_fit, newx, type = "prob")[, 1]
+training$probability = predict(xgb_fit, x_train, type = "prob")[, 1]
+
 

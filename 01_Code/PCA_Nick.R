@@ -68,6 +68,8 @@ train = createDataPartition(y = df$loan_status, p = 0.7, list = F)
 training = df[train,]
 testing = df[-train,]
 
+str(training)
+
 trainControl = trainControl(method = "cv",
                             number = 5,
                             classProbs = T, 
@@ -79,6 +81,8 @@ trainControl = trainControl(method = "cv",
 lasso_hyperparams = expand.grid(alpha = 1, 
                                 lambda = seq(0.0001, 1, length = 100))
 
+exclude = c(1,14)
+
 x_train <- model.matrix( ~ ., training[,-14])
 
 lasso_fit = train(x = x_train, y = training$loan_status,
@@ -89,7 +93,7 @@ lasso_fit = train(x = x_train, y = training$loan_status,
 
 print(lasso_fit)
 
-newx = model.matrix( ~ ., testing[,-14])
+newx = model.matrix( ~ ., testing[,-exclude])
 
 lasso_pred = predict(lasso_fit, newx, type = "raw")
 confusionMatrix(data = lasso_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
@@ -101,6 +105,8 @@ training$probability = predict(lasso_fit, x_train, type = "prob")[, 1]
 #run through validation data and prepare results
 validation = read.csv("~/Documents/GitHub/DAM_Assignment2_CM/02_Working_data_folder/validation.csv")
 validationx = model.matrix( ~ ., validation[,-14])
+
+validation
 
 str(validation)
 str(training)

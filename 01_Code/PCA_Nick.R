@@ -73,10 +73,10 @@ dim(training)
 dim(testing)
 
 xgb_control = trainControl(method = "cv",
-                            number = 5,
-                            classProbs = T, 
-                            summaryFunction = twoClassSummary, 
-                            allowParallel = TRUE
+                           number = 5,
+                           classProbs = T, 
+                           summaryFunction = twoClassSummary, 
+                           allowParallel = TRUE
 )
 
 # XGB Hyperparams
@@ -103,10 +103,10 @@ xgb_hyperparams = expand.grid(nrounds = 100,
 x_train <- model.matrix( ~ ., training[,-14])
 
 xgb_fit = train(x = x_train, y = training$loan_status,
-                  method='xgbTree',
-                  trControl= xgb_control, 
-                  tuneGrid = xgb_hyperparams, 
-                  metric = 'ROC')
+                method='xgbTree',
+                trControl= xgb_control, 
+                tuneGrid = xgb_hyperparams, 
+                metric = 'ROC')
 
 
 #Models using upsampling and downsampling
@@ -191,7 +191,7 @@ for (var in ridge_importance[1:length(ridge_importance)]) {
 #===============================================================
 
 set.seed(42)
-train = createDataPartition(y = df$Target, p = 0.7, list = F)
+train = createDataPartition(y = df$loan_status, p = 0.7, list = F)
 
 # drop ID column
 training = df[train,]
@@ -318,8 +318,9 @@ rf_fit = train(x = x_train, y = training$loan_status,
 
 rf_fit$results
 print(rf_fit)
+newx = model.matrix( ~ ., testing[,-14])
 
-rf_pred = predict(rf_fit, testing, type = "raw")
+rf_pred = predict(rf_fit, newx, type = "raw")
 confusionMatrix(rf_pred, testing$loan_status, mode = "everything", positive="Charged.Off")
 
 testing$probability = predict(rf_fit, testing, type = "prob")[, 1]
@@ -342,10 +343,10 @@ for (i in seq_along(rf_importance)[1:14]) {
 }
 
 #validation data set
-validation = read.csv("repurchase_validation.csv")
-validation$validation_pred = predict(rf_fit, validation, type = "raw")
-validation$probability = predict(rf_fit, validation, type = "prob")[, 1]
-write.csv(validation, "validation.csv")
+#validation = read.csv("repurchase_validation.csv")
+#validation$validation_pred = predict(rf_fit, validation, type = "raw")
+#validation$probability = predict(rf_fit, validation, type = "prob")[, 1]
+#write.csv(validation, "validation.csv")
 
-count(validation$validation_pred)
+#count(validation$validation_pred)
 

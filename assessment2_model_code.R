@@ -1,4 +1,6 @@
-####model code
+####
+###CLARE MACLEAN MODEL CODE 
+#model code
 ##########################
 ###lasso model code#####
 #install.packages("glmnet")

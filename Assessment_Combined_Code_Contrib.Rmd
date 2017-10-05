@@ -1,0 +1,1197 @@
+---
+title: "Code_contributions"
+author: "Corinna Maher Mittmann"
+date: "05/10/2017"
+output: word_document
+---
+# Corinna's Code Snipet
+```{r setup, eval=F}
+###########################################################
+###            DATA ALGOITHMS AND MEANING
+###           ASSESSMENT 2: Classification 
+###              LOAN DEFAULT CHALLENGE
+###              Corinna Maher Mittmann
+###                    SEP 2017
+###   DOCUMENT Purpose: Clean Data + Model CART tree & Logistic Regression
+###########################################################
+Original_Data_Location <- "/Users/corinnamm/Documents/GitHub/DAM_Assignment2_CM/03_DAM_Spring2017_Assignment_2/"
+working_file_path <- "/Users/corinnamm/Dropbox/02_Working_data_folder/"
+code_file_path <- "/Users/corinnamm/Documents/GitHub/DAM_Assignment2_CM/01_Code/"
+wd_path <- "/Users/corinnamm/Documents/GitHub/DAM_Assignment2_CM/"
+###
+library(randomForest)
+library(glmnet)
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(lubridate)
+library(stats)
+require(caret)
+require(readr)
+require(e1071)
+library(gbm)
+library(caret)
+library(ISLR)
+library(corrplot)
+library(nnet)
+library(glmnet)
+##
+source(paste0(code_file_path,"/99_general_functions_DAM_Corinna.R"))
+
+require(dplyr)
+## === START CLEAN
+default <- read.csv("/Users/corinnamm/Documents/GitHub/DAM_Assignment2_CM/03_DAM_Spring2017_Assignment_2/training.csv", header = T)
+# #### ==== Pre-clean exploration
+# 
+# ### 
+# default <- read.csv(paste0(Original_Data_Location,"training.csv"), header = T)
+# data_dict <- read.csv(paste0(Original_Data_Location,"data_dictionary.csv"), header = T)
+# data_dict
+# 
+# check_for_missing(default)
+# 
+# # for (i in 1:(length(names(default)))){
+# #   print(i)
+# #   s <- qplot(x = default[,i],y=default$loan_amnt, geom = "point", col = default$loan_status) 
+# #   plot(s)
+# # }
+# 
+# # use custom function from function script to look at densities and descriptive stats
+# descriptive_info(default, "loan_status")
+
+review_data_func(default,"Charged.Off", "Fully.Paid")
+
+# remove columns with 1 level
+mylist_levels <- default %>%
+  summarise_each(funs(n_distinct)) %>%
+  tidyr::gather("LoanStatNew", "level") %>% filter(level != 1) %>% select(LoanStatNew)
+cols_to_keep <- purrr::as_vector(mylist_levels, .type = "character")
+typeof(cols_to_keep)
+typeof(names(default))
+default2 = default[,cols_to_keep]
+### ======== may need to review this decision to remove as 0 and NA values only - ? does distinction btw 0 and NA have value?
+#collections # n.a
+unique(default2$collections_12_mths_ex_med)
+table(default2$collections_12_mths_ex_med)
+default2 <- select(default2, -collections_12_mths_ex_med)
+# remove tax liens
+unique(default2$tax_liens)
+table(default2$tax_liens)
+default2 <- select(default2, -tax_liens)
+data <- default2
+# make interest rate numeric
+head(unique(data$int_rate))
+data$int_rate <- gsub("X", "", data$int_rate)
+# check that "." is the last character for every level
+table((substr(data$int_rate, nchar(data$int_rate),nchar(data$int_rate))=="."))[[1]]==nrow(data)
+n_distinct((substr(data$int_rate, 1,nchar(data$int_rate)-1))) == n_distinct(data$int_rate)
+data$int_rate <- substr(data$int_rate, 1,nchar(data$int_rate)-1)
+# write.csv(data, paste0(working_file_path,"clean_data_v2.csv"),row.names = F)
+# data<- read.csv(paste0(working_file_path,"clean_data_v2.csv"))
+str(data)
+# Make emp_length consistent
+# change missing format
+data$emp_length <- gsub("\\.","",data$emp_length)
+data$emp_length <- gsub("X", "", data$emp_length)
+head(data$emp_length)
+# deal with na
+table(data$emp_length == "na")
+data$emp_length <- ifelse(data$emp_length == "na","unknown",data$emp_length) #unknown for unknown values we can change this to "unknown"
+table(data$emp_length == "unknown")
+# keep only the value and remove "years" year, ..years etc units
+data$emp_length <- gsub("year","",data$emp_length)
+data$emp_length <- gsub("s","",data$emp_length)
+unique(data$emp_length)
+qplot(data$emp_length, fill = "identity")
+# write.csv(data, paste0(working_file_path,"clean_data_v3.csv"),row.names = F)
+# data<- read.csv(paste0(working_file_path,"clean_data_v3.csv"))
+# Make term consistent
+# change missing format
+data$term <- gsub("\\.","",data$term)
+head(data$term)
+# deal with na
+table(data$term == "na")
+# no na values established
+# data$term <- ifelse(data$term == "na","unknown",data$term)
+# table(data$term == "unknown")
+# keep only the value and remove "years" year, ..years etc units
+data$term <- gsub("month","",data$term)
+data$term <- gsub("s","",data$term)
+head(data$term)
+unique(data$term)
+qplot(data$term, fill = "identity")
+### --------------------- Make verification_status consistent
+# change missing format
+unique(data$verification_status)
+data$verification_status <- gsub("\\.","_",data$verification_status)
+qplot(data$verification_status, fill = "identity")
+# pub rec bankruptcies # NA
+unique(data$pub_rec_bankruptcies)
+# deal with na
+table(is.na(data$pub_rec_bankruptcies))
+data$pub_rec_bankruptcies <- ifelse(is.na(data$pub_rec_bankruptcies),"unknown",data$pub_rec_bankruptcies)
+table(data$pub_rec_bankruptcies == "unknown")
+data$pub_rec_bankruptcies <- as.factor(data$pub_rec_bankruptcies)
+qplot(data$pub_rec_bankruptcies, fill = "identity")
+
+table(data$pub_rec_bankruptcies)
+### --------------------- Refomat the date column
+# earliest cred line convert to floor date
+data$earliest_cr_line = gsub("\\.","-",data$earliest_cr_line)
+data <- mutate(data, earliest_cr_line = as.Date(paste0("01-",earliest_cr_line), format = "%d-%b-%Y"))
+# test <- dplyr::sample_n(as.tibble(data$earliest_cr_line), 10)
+unique(data$earliest_cr_line)
+# qplot(data$earliest_cr_line, data$total_rec_int, colour = data$inq_last_6mths)
+qplot(data$earliest_cr_line, fill = "identity") ## + facet_wrap(data$loan_status)
+## we may or may not want to convert the date into continuous time series
+## it may be advantageous to keep the time format as is
+####
+## ==== Please note that I am changing the format of this column to days since the publish date of the data.
+# These files contain complete loan data for all loans issued through the time period stated, 
+# including the current loan status (Current, Late, Fully Paid, etc.) and latest payment information. 
+# The file containing loan data through the "present" (note the data was uploaded a year ago to Kaggle by Wendy Kan)
+# contains complete loan data for all loans issued through the previous completed calendar quarter.
+row.names(data) <- data$member_id
+# max(as.Date(new_data$earliest_cr_line))
+max(as.Date(old_data$earliest_cr_line))
+max(as.Date(data$earliest_cr_line))
+## ==== earliest credit line was not seen to be important for the tree model
+####
+backup_data <- data
+data <- mutate(data, earliest_cr_line = as.Date("2017-09-25") - as.Date(earliest_cr_line))
+head(data$earliest_cr_line)
+data$earliest_cr_line = as.double(data$earliest_cr_line)
+names(data)
+data <- select(data, -total_pymnt_inv, -installment, -funded_amnt_inv, -grade, -total_rec_prncp)
+# write.csv(data, paste0(Original_Data_Location,"version2_training_26_col"),row.names = F)
+# data2 <- data %>% mutate(grade = substr(sub_grade, 1,1)) %>% select(-sub_grade)  ### to convert subgrade to grade
+data <- read_csv(paste0(Original_Data_Location,"version2_training_26col.csv"))
+
+#####################
+# Validation set
+#####################
+default <- read.csv("/Users/corinnamm/Documents/GitHub/DAM_Assignment2_CM/03_DAM_Spring2017_Assignment_2/validation.csv", header = T)
+str(default)
+## === START CLEAN
+# remove columns not in model data
+targetcolnum <- grep("loan_status",names(old_data))
+# is_there_a_target <- grep("loan_status",names(default)) #no
+cols_to_keep <- names(data[,-targetcolnum]) # 10 is target (loan_status)
+typeof(cols_to_keep)
+names(default)
+default2 = select(default, paste0(cols_to_keep))
+names(default2)
+### ======== may need to review this decision to remove as 0 and NA values only - ? does distinction btw 0 and NA have value?
+#collections # n.a
+unique(default2$collections_12_mths_ex_med)
+table(default2$collections_12_mths_ex_med)
+default2 <- select(default2, -collections_12_mths_ex_med)
+# remove tax liens
+unique(default2$tax_liens)
+table(default2$tax_liens)
+default2 <- select(default2, -tax_liens)
+data <- default2
+# make interest rate numeric
+head(unique(data$int_rate))
+data$int_rate <- gsub("X", "", data$int_rate)
+# check that "." is the last character for every level
+table((substr(data$int_rate, nchar(data$int_rate),nchar(data$int_rate))=="."))[[1]]==nrow(data)
+n_distinct((substr(data$int_rate, 1,nchar(data$int_rate)-1))) == n_distinct(data$int_rate)
+data$int_rate <- substr(data$int_rate, 1,nchar(data$int_rate)-1)
+# write.csv(data, paste0(working_file_path,"clean_data_v2.csv"),row.names = F)
+# data<- read.csv(paste0(working_file_path,"clean_data_v2.csv"))
+str(data)
+# Make emp_length consistent
+# change missing format
+data$emp_length <- gsub("\\.","",data$emp_length)
+data$emp_length <- gsub("X", "", data$emp_length)
+head(data$emp_length)
+# deal with na
+table(data$emp_length == "na")
+data$emp_length <- ifelse(data$emp_length == "na","unknown",data$emp_length) #unknown for unknown values we can change this to "unknown"
+table(data$emp_length == "unknown")
+# keep only the value and remove "years" year, ..years etc units
+data$emp_length <- gsub("year","",data$emp_length)
+data$emp_length <- gsub("s","",data$emp_length)
+unique(data$emp_length)
+qplot(data$emp_length, fill = "identity")
+# write.csv(data, paste0(working_file_path,"clean_data_v3.csv"),row.names = F)
+# data<- read.csv(paste0(working_file_path,"clean_data_v3.csv"))
+# Make term consistent
+# change missing format
+data$term <- gsub("\\.","",data$term)
+head(data$term)
+# deal with na
+table(data$term == "na")
+# no na values established
+# data$term <- ifelse(data$term == "na","unknown",data$term)
+# table(data$term == "unknown")
+# keep only the value and remove "years" year, ..years etc units
+data$term <- gsub("month","",data$term)
+data$term <- gsub("s","",data$term)
+head(data$term)
+unique(data$term)
+qplot(data$term, fill = "identity")
+### --------------------- Make verification_status consistent
+# change missing format
+unique(data$verification_status)
+data$verification_status <- gsub("\\.","_",data$verification_status)
+qplot(data$verification_status, fill = "identity")
+# pub rec bankruptcies # NA
+unique(data$pub_rec_bankruptcies)
+# deal with na
+table(is.na(data$pub_rec_bankruptcies))
+data$pub_rec_bankruptcies <- ifelse(is.na(data$pub_rec_bankruptcies),"unknown",data$pub_rec_bankruptcies)
+table(data$pub_rec_bankruptcies == "unknown")
+data$pub_rec_bankruptcies <- as.factor(data$pub_rec_bankruptcies)
+qplot(data$pub_rec_bankruptcies, fill = "identity")
+table(data$pub_rec_bankruptcies)
+### --------------------- Refomat the date column
+# earliest cred line convert to floor date
+data$earliest_cr_line = gsub("\\.","-",data$earliest_cr_line)
+data <- mutate(data, earliest_cr_line = as.Date(paste0("01-",earliest_cr_line), format = "%d-%b-%Y"))
+# test <- dplyr::sample_n(as.tibble(data$earliest_cr_line), 10)
+unique(data$earliest_cr_line)
+# qplot(data$earliest_cr_line, data$total_rec_int, colour = data$inq_last_6mths)
+qplot(data$earliest_cr_line, fill = "identity") ## + facet_wrap(data$loan_status)
+## we may or may not want to convert the date into continuous time series
+## it may be advantageous to keep the time format as is
+####
+## ==== Please note that I am changing the format of this column to days since the publish date of the data.
+# These files contain complete loan data for all loans issued through the time period stated, 
+# including the current loan status (Current, Late, Fully Paid, etc.) and latest payment information. 
+# The file containing loan data through the "present" (note the data was uploaded a year ago to Kaggle by Wendy Kan)
+# contains complete loan data for all loans issued through the previous completed calendar quarter.
+row.names(data) <- data$member_id
+# max(as.Date(new_data$earliest_cr_line))
+max(as.Date(old_data$earliest_cr_line))
+max(as.Date(data$earliest_cr_line))
+## == note == earliest credit line was not seen to be important for the tree model - as a time series consider the value of use
+####
+backup_data <- data
+
+### PARTITION OUT PROBLEM ROWS
+problem_rows <- data.frame(member_id = NA)
+tbl_df(data)
+problem_rows_func(problem_rows = problem_rows, new_data = tbl_df(data))
+class(problem_rows)
+problem_row_id <- distinct(tbl_df(problem_rows))
+problem_rows <- tbl_df(problem_rows)
+problem_rows <- distinct(problem_rows)
+problem_rows <- left_join(problem_rows,data)
+data2 <- mutate(data, problem = if_else(member_id %in% problem_row_id[[1]], 1,0))
+table(data2$problem)
+# problem_rows_complete
+back_up <- data2
+## remove problem rows from data
+
+data <- data2 %>% filter(problem == 0 ) %>% select(-problem)
+
+data <- mutate(data, earliest_cr_line = as.Date("2017-09-25") - as.Date(earliest_cr_line))
+head(data$earliest_cr_line)
+data$earliest_cr_line = as.double(data$earliest_cr_line)
+names(data)
+# write_csv(data, paste0(Original_Data_Location, "version2_validation_noNA.csv"))
+# data <- select(data, -total_pymnt_inv, -installment, -funded_amnt_inv, -grade, -total_rec_prncp)
+# write_csv(data, paste0(Original_Data_Location, "version2_validation_25col_noNA.csv"))
+# data2 <- data %>% mutate(grade = substr(sub_grade, 1,1)) %>% select(-sub_grade)  ### to convert subgrade to grade
+
+NAdata <- data2 %>% filter(problem == 1 ) %>% select(-problem)
+# write_csv(NAdata, paste0(Original_Data_Location, "version2_validation_all_columns_NA.csv"))
+NAdata <- select(NAdata, -total_pymnt_inv, -installment, -funded_amnt_inv, -grade, -total_rec_prncp)
+# write_csv(NAdata, paste0(Original_Data_Location, "version2_validation_25col_NA.csv"))
+
+data <- bind_rows(data,NAdata)
+# write_csv(data, paste0(Original_Data_Location, "version2_validation_full_25col.csv"))
+
+# write_csv(data, paste0(Original_Data_Location, "version2_validation_full.csv"))
+
+## ===== END CLEANING
+
+## Data Understanding part 2 ## load data
+str(data)
+table(data$loan_status)
+## make target binary
+data <- mutate(data, loan_status = if_else(loan_status == "Charged.Off",1,0))
+table(data$loan_status)
+## remove ID
+data <- select(data, -X)
+
+data = as.tibble(data)
+int_data <- select(data, -term, -grade, -sub_grade, -home_ownership, 
+                   -verification_status, -purpose, -addr_state,
+                   -pub_rec_bankruptcies, -earliest_cr_line) # loan_status
+int_data$emp_length = gsub("X","", int_data$emp_length)
+int_data$emp_length = ifelse(int_data$emp_length == "UK", 0, int_data$emp_length)
+int_data$emp_length = as.numeric(int_data$emp_length)
+# corrplot::corrplot(int_data, method = "shade")
+str(int_data)
+default_corplot <- int_data[sapply(int_data, function(x) is_integer(x) || is_double(x))]                                               
+par(mfrow = c(1,1))
+corrplot::corrplot(cor(default_corplot), method = "shade") 
+
+## Clean up workspace
+data <- backup_data
+rm(int_data, default, default2, default_corplot)
+##################
+## MODELLING
+##################
+
+# old_data <- read.csv(paste0(working_file_path,"clean_justified_data_25var.csv"))
+# default <- read.csv(paste0(Original_Data_Location,".csv"), header = T)
+# write_csv(data, paste0(working_file_path,"v2_clean_justified_data_25var"))
+# data <- read_csv(paste0(working_file_path,"v2_clean_justified_data_25var.csv"))
+data <- read_csv(paste0(Original_Data_Location,"version2_training_26col.csv"))
+# Renove ID
+row.names(data) <- data$member_id
+data <- select(data, -member_id)
+str(data)
+data$loan_status <- as.factor(data$loan_status)
+data<- data %>% mutate(                 loan_amnt = as.numeric(loan_amnt),
+                                        funded_amnt = as.numeric(funded_amnt),
+                                        term = as.factor(term),
+                                        int_rate = as.numeric(int_rate),
+                                        sub_grade = as.factor(sub_grade), # = substr(sub_grade, 1,1),
+                                        emp_length = as.factor(emp_length),
+                                        home_ownership = as.factor(home_ownership),
+                                        annual_inc = as.numeric(annual_inc),
+                                        verification_status = as.factor(verification_status),
+                                        loan_status = as.factor(loan_status),
+                                        purpose = as.factor(purpose),
+                                        addr_state = as.factor(addr_state),
+                                        dti = as.numeric(dti),
+                                        delinq_2yrs = as.numeric(delinq_2yrs),
+                                        earliest_cr_line = as.numeric(earliest_cr_line),
+                                        inq_last_6mths = as.numeric(inq_last_6mths),
+                                        open_acc = as.numeric(open_acc),
+                                        pub_rec = as.numeric(pub_rec),
+                                        revol_bal = as.numeric(revol_bal),
+                                        total_acc = as.numeric(total_acc),
+                                        total_pymnt = as.numeric(total_pymnt),
+                                        total_rec_int = as.numeric(total_rec_int),
+                                        total_rec_late_fee = as.numeric(total_rec_late_fee),
+                                        last_pymnt_amnt = as.numeric(last_pymnt_amnt),
+                                        pub_rec_bankruptcies = as.factor(pub_rec_bankruptcies))
+str(data)
+data <- tbl_df(data)
+class(data)
+###############
+## SUB SAMPLING FOR UNBALANCED CLASS
+#to improve the model subsampling is also performed on an alternate dataset
+###############
+## Partitioning to train the glmnet model
+#dummy factors
+data_backup <- data
+#######################################
+set.seed(42)
+train = createDataPartition(y = data$loan_status, p = 0.7, list = F)
+# partition default data
+training = data[train, ]
+training <- mutate(training, loan_status = if_else(loan_status == "Charged.Off",1,0))
+dmy <- dummyVars(" ~ .", data = training, fullRank = F)
+glmDF <- as.data.frame(predict(dmy,training))
+glmDF <- mutate(glmDF, loan_status = if_else(loan_status == 1,"Charged.Off","Fully.Paid"))
+training <- mutate(training, loan_status = if_else(loan_status == 1,"Charged.Off","Fully.Paid"))
+testing = data[-train, ]
+testing <- mutate(testing, loan_status = if_else(loan_status == "Charged.Off",1,0))
+dmy <- dummyVars(" ~ .", data = testing, fullRank = F)
+testDF <- as.data.frame(predict(dmy,testing))
+testDF <- mutate(testDF, loan_status = if_else(loan_status == 1,"Charged.Off","Fully.Paid"))
+testing <- mutate(testing, loan_status = if_else(loan_status == 1,"Charged.Off","Fully.Paid"))
+table(testing$loan_status)
+table(training$loan_status)
+## upsampled dataframe
+# imbal_training$ID <- rownames(imbal_training)
+set.seed(42)
+x <- select(glmDF, -loan_status)
+set.seed(42)
+up_glmDF <- upSample(x = x,
+                     y = as.factor(glmDF$loan_status), list = F, yname = "loan_status")
+set.seed(42)
+down_training <- downSample(x = x,
+                            y = training$loan_status, list = F, yname = "loan_status")
+# Even class balance will present problems for interpretability
+#
+up_training <- up_glmDF
+table(up_training$loan_status)
+# head(up_training$x)
+class(up_training)
+str(up_training)
+backup_up_train_up <- up_training
+backup_up_train_dn <- down_training
+targetcol <- grep("loan_status", names(up_training))
+set.seed(42)
+
+## BAGGED CART WITH SMALLER DATA SET With either GRADE/SUBGRADE used
+ctrl <- trainControl(method = "repeatedcv", repeats = 5,
+                     classProbs = TRUE,
+                     summaryFunction = twoClassSummary)
+
+set.seed(42)
+upmod_inside <- train(x = up_training[,-ncol(up_training)],y=up_training[,ncol(up_training)], 
+                      method = "treebag",
+                      nbagg = 50,
+                      metric = "ROC",
+                      trControl = ctrl)
+
+## cannot have binary level labels for the caret packet will throw error as 0 and 1 levels are not valid format
+
+## Evaluation
+
+str(upmod_inside)
+upmod_inside$results
+## ===== confusion matrix
+# table(repurchase.rf$test$predicted,testing$Target)
+te <- grep("loan_status",names((testDF)))
+predictions_upmod <- predict(upmod_inside$finalModel,testDF[,-te],type="class")
+probability_upmod <- predict(upmod_inside$finalModel,testing[,-te],type="prob")
+# cbind(testing, predictions_upmod)
+# cbind(testing,probability_upmod)
+# test_validationfile <- testing
+wow <- confusionMatrix(predictions_upmod,testDF[,te])
+wow
+wow$byClass
+
+## ==== ROCR
+typeof(predictions_upmod)
+tesi<- testDF
+
+tesi$pred <- predictions_upmod
+binary<- mutate(tesi, pred = ifelse(pred == "Charged.Off", 1,0), loan_status = ifelse(loan_status == "Charged.Off", 1,0)) 
+testing_prediction = prediction(binary$pred, binary$loan_status)
+data.test.auc <- ROCR::performance(testing_prediction, "auc")
+auc = unlist(slot(data.test.auc, "y.values"))
+#
+
+# model_evaluation(testDF,training, upmod_inside$finalModel, target = "loan_status")
+
+impmod<- varImp(upmod_inside$finalModel)
+plot(impmod)
+### =========
+
+##############################
+## predict the validation set
+new_data <- read_csv(paste0(Original_Data_Location,"version2_validation_full_25col.csv"))
+
+## ====== prep submission prediction data
+new_data<- new_data %>% mutate(                 loan_amnt = as.numeric(loan_amnt),
+                                                funded_amnt = as.numeric(funded_amnt),
+                                                term = as.factor(term),
+                                                int_rate = as.numeric(int_rate),
+                                                grade = as.factor(grade),
+                                                emp_length = as.factor(emp_length),
+                                                home_ownership = as.factor(home_ownership),
+                                                annual_inc = as.numeric(annual_inc),
+                                                verification_status = as.factor(verification_status),
+                                                purpose = as.factor(purpose),
+                                                addr_state = as.factor(addr_state),
+                                                dti = as.numeric(dti),
+                                                delinq_2yrs = as.numeric(delinq_2yrs),
+                                                earliest_cr_line = ymd(earliest_cr_line),
+                                                inq_last_6mths = as.numeric(inq_last_6mths),
+                                                open_acc = as.numeric(open_acc),
+                                                pub_rec = as.numeric(pub_rec),
+                                                revol_bal = as.numeric(revol_bal),
+                                                total_acc = as.numeric(total_acc),
+                                                total_pymnt = as.numeric(total_pymnt),
+                                                total_rec_int = as.numeric(total_rec_int),
+                                                total_rec_late_fee = as.numeric(total_rec_late_fee),
+                                                last_pymnt_amnt = as.numeric(last_pymnt_amnt),
+                                                pub_rec_bankruptcies = as.factor(pub_rec_bankruptcies))
+
+str(new_data)
+row.names(new_data) <- new_data$member_id
+id <- grep("member_id",names((new_data)))
+### If the dummy variables names are not the same - to insert the . for the dummy names below
+# colnames(new_data)[4] <- paste0(colnames(new_data)[4],".")
+# colnames(new_data)[6] <- paste0(colnames(new_data)[6],".")
+# colnames(new_data)[7] <- paste0(colnames(new_data)[7],".")
+# colnames(new_data)[8] <- paste0(colnames(new_data)[8],".")
+# colnames(new_data)[10] <- paste0(colnames(new_data)[10],".")
+# colnames(new_data)[11] <- paste0(colnames(new_data)[11],".")
+# colnames(new_data)[12] <- paste0(colnames(new_data)[12],".")
+# colnames(new_data)[25] <- paste0(colnames(new_data)[25],".")
+## ====================
+# testing2 <- mutate(new_data, loan_status = if_else(loan_status == "Charged.Off",1,0))
+dmy <- dummyVars(" ~ .", data = new_data[,-id], fullRank = F)
+testDF2 <- as.data.frame(predict(dmy,new_data[,-id]))
+# reorder names(testDF)
+testDF3 <- testDF2
+testDF3$addr_state.ME <- 0
+# names(testDF3) <- (names(testDF))
+
+# testDF2 <- mutate(testDF2, loan_status = if_else(loan_status == 1,"Charged.Off","Fully.Paid"))
+# testing2 <- mutate(testing2, loan_status = if_else(loan_status == 1,"Charged.Off","Fully.Paid"))
+
+### ============== New Submission
+
+loan_status_pred <- predict(upmod_inside$finalModel,testDF2[,-id],type="class")
+prob_upmod <- predict(upmod_inside$finalModel,testDF3,type="prob")
+
+new_pred <- cbind(new_data,prob_upmod)
+names(new_pred)
+new_pred <- select(new_pred, member_id, Charged.Off)
+names(new_pred) <- c("member_id",   "probability")
+write_csv(new_pred, paste0(Original_Data_Location, "bag_cart_upsamp_5rptcv_50nbagg_submission2.csv"))
+
+##############################
+## predict the validation set
+new_data <- read_csv(paste0(Original_Data_Location,"version2_validation_full_25col.csv"))
+
+## ====== prep submission prediction data for tree
+new_data<- new_data %>% mutate(                 loan_amnt = as.numeric(loan_amnt),
+                                                funded_amnt = as.numeric(funded_amnt),
+                                                term = as.factor(term),
+                                                int_rate = as.numeric(int_rate),
+                                                grade = as.factor(grade),
+                                                emp_length = as.factor(emp_length),
+                                                home_ownership = as.factor(home_ownership),
+                                                annual_inc = as.numeric(annual_inc),
+                                                verification_status = as.factor(verification_status),
+                                                purpose = as.factor(purpose),
+                                                addr_state = as.factor(addr_state),
+                                                dti = as.numeric(dti),
+                                                delinq_2yrs = as.numeric(delinq_2yrs),
+                                                earliest_cr_line = ymd(earliest_cr_line),
+                                                inq_last_6mths = as.numeric(inq_last_6mths),
+                                                open_acc = as.numeric(open_acc),
+                                                pub_rec = as.numeric(pub_rec),
+                                                revol_bal = as.numeric(revol_bal),
+                                                total_acc = as.numeric(total_acc),
+                                                total_pymnt = as.numeric(total_pymnt),
+                                                total_rec_int = as.numeric(total_rec_int),
+                                                total_rec_late_fee = as.numeric(total_rec_late_fee),
+                                                last_pymnt_amnt = as.numeric(last_pymnt_amnt),
+                                                pub_rec_bankruptcies = as.factor(pub_rec_bankruptcies))
+
+str(new_data)
+row.names(new_data) <- new_data$member_id
+id <- grep("member_id",names((new_data)))
+colnames(new_data)[4] <- paste0(colnames(new_data)[4],".")
+colnames(new_data)[6] <- paste0(colnames(new_data)[6],".")
+colnames(new_data)[7] <- paste0(colnames(new_data)[7],".")
+colnames(new_data)[8] <- paste0(colnames(new_data)[8],".")
+colnames(new_data)[10] <- paste0(colnames(new_data)[10],".")
+colnames(new_data)[11] <- paste0(colnames(new_data)[11],".")
+colnames(new_data)[12] <- paste0(colnames(new_data)[12],".")
+colnames(new_data)[25] <- paste0(colnames(new_data)[25],".")
+## ====================
+# testing2 <- mutate(new_data, loan_status = if_else(loan_status == "Charged.Off",1,0))
+dmy <- dummyVars(" ~ .", data = new_data[,-id], fullRank = F)
+testDF2 <- as.data.frame(predict(dmy,new_data[,-id]))
+# reorder names(testDF)
+testDF3 <- testDF2
+testDF3$addr_state.ME <- 0
+# names(testDF3) <- (names(testDF))
+
+# testDF2 <- mutate(testDF2, loan_status = if_else(loan_status == 1,"Charged.Off","Fully.Paid"))
+# testing2 <- mutate(testing2, loan_status = if_else(loan_status == 1,"Charged.Off","Fully.Paid"))
+
+### ============== New Submission
+
+loan_status_pred <- predict(upmod_inside$finalModel,testDF2[,-id],type="class")
+prob_upmod <- predict(upmod_inside$finalModel,testDF3,type="prob")
+
+new_pred <- cbind(new_data,prob_upmod)
+names(new_pred)
+new_pred <- select(new_pred, member_id, Charged.Off)
+names(new_pred) <- c("member_id",   "probability")
+write_csv(new_pred, paste0(Original_Data_Location, "bag_cart_upsamp_5rptcv_50nbagg_submission2.csv"))
+
+
+### ============================================================
+## GLM MODELS - manual 
+### ============================================================
+
+
+###########################
+# Partitioning
+###########################
+
+# We want to partition our data into 70% for training, 30% for testing
+
+# create data partition row list
+set.seed(42)  # setting a random seed ensures we get the same result each time
+# We will use the function 'createDataPartition' from the caret package
+# ?createDataPartition
+train = createDataPartition(y = data$loan_status, p = 0.75, list = F)
+# partition data data into two sets 
+training = data[train, ]
+testing = data[-train, ]
+str(training)
+str(testing)
+traincol <- grep("loan_status",names(training))
+set.seed(42)
+down_training <- caret::downSample(x = training[,-traincol],
+                                   y = as.factor(training$loan_status), list = FALSE, yname = "loan_status")
+class(down_training)
+up_training <- caret::upSample(x = training[,-traincol],
+                               y = as.factor(training$loan_status), list = FALSE, yname = "loan_status")
+
+###########################
+# Variable selection
+###########################
+table(down_training$loan_status)
+# In this section, we will select which variables we want to include in our model
+# We'll do this by backwards selection - start with everything and remove one by one
+
+# let's start by throwing all the variables into the logistic regression
+data.glm = glm(formula = loan_status ~ .-member_id -home_ownership,
+               data = down_training,
+               family = "binomial")
+summary(data.glm)
+data.glm$formula
+# AIC ~ 607
+## downsampled AIC ~ 268
+# It's clear that we can remove some variables. This should drop the AIC
+# AIC ~ 604
+
+print(names(data))
+# We can probably remove a few more
+data.glm = glm(formula = loan_status ~ loan_amnt + term + int_rate + annual_inc + dti + delinq_2yrs + earliest_cr_line + inq_last_6mths + open_acc + pub_rec + revol_bal + total_acc          
+               + total_pymnt  + total_rec_late_fee + last_pymnt_amnt,
+               data = down_training,
+               family = "binomial")
+summary(data.glm)
+# AIC ~ 11492
+data.glm = glm(formula = loan_status ~ loan_amnt + term + int_rate + total_acc          
+               + total_pymnt  + total_rec_late_fee + last_pymnt_amnt,
+               data = up_training,
+               family = "binomial")
+summary(data.glm)
+# AIC ~11538
+
+glmDF <- mutate(down_training, loan_status = if_else(loan_status == "Charged.Off",1,0))
+
+glmDF <- mutate(data, loan_status = if_else(loan_status == "Charged.Off",1,0))
+data.glm = glm(formula = loan_status ~ loan_amnt + purpose + funded_amnt + term + int_rate + annual_inc + dti + addr_state +installment + 
+                 earliest_cr_line + inq_last_6mths + open_acc + pub_rec + revol_bal + total_acc + pub_rec_bankruptcies         
+               + total_pymnt  + total_rec_late_fee + last_pymnt_amnt + home_ownership +emp_length +verification_status +sub_grade,
+               data = glmDF,
+               family = "binomial")
+# AIC ~ 6908.6
+
+data.glm = glm(formula = loan_status ~ loan_amnt + purpose + funded_amnt + term + int_rate + annual_inc + dti + installment + 
+                 total_pymnt  + total_rec_late_fee + last_pymnt_amnt + emp_length + sub_grade,
+               data = glmDF,
+               family = "binomial")
+summary(data.glm)
+# AIC ~ 6878.6
+glmDF <- mutate(data, loan_status = if_else(loan_status == "Charged.Off",1,0))
+
+data.glm = glm(formula = loan_status ~ loan_amnt + purpose + funded_amnt + term + int_rate + annual_inc + dti +installment + 
+                 inq_last_6mths + open_acc + pub_rec + revol_bal + total_acc + pub_rec_bankruptcies         
+               + total_pymnt  + total_rec_late_fee + last_pymnt_amnt + home_ownership +emp_length +verification_status +sub_grade,
+               data = glmDF,
+               family = "binomial")
+summary(data.glm)
+# AIC ~ 6876.6
+# Let's stick with this last model
+data.glm3 = glm(formula = loan_status ~ loan_amnt + purpose + funded_amnt + term + int_rate + annual_inc + dti + installment + 
+                  earliest_cr_line + inq_last_6mths + open_acc + pub_rec + revol_bal + total_acc + pub_rec_bankruptcies         
+                + total_pymnt  + total_rec_late_fee + last_pymnt_amnt +emp_length + sub_grade,
+                data = glmDF,
+                family = "binomial")
+summary(data.glm3)
+# AIC ~ 6868.6
+
+data.glm2 = glm(formula = loan_status ~ loan_amnt + purpose + funded_amnt + term + int_rate + annual_inc + dti +installment + 
+                  earliest_cr_line + inq_last_6mths + open_acc + pub_rec + revol_bal + total_acc + pub_rec_bankruptcies         
+                + total_pymnt  + total_rec_late_fee + last_pymnt_amnt +emp_length + verification_status + sub_grade,
+                data = glmDF,
+                family = "binomial")
+summary(data.glm2)
+# AIC ~ 6871.1
+# Let's stick with this last model
+
+###########################
+# Create probabilities and predictions
+###########################
+data.glm <- data.glm2
+# add the probabilities to the testing data
+# grep("home_ownership")
+testing$probability = predict(data.glm2, newdata = testing, type = "response")
+# ?predict.glm
+# assume that the optimum probability threshold is 0.5
+# Create the class prediction - our target is the "MM" class
+testing$prediction = "Fully.Paid"
+testing[testing$probability >= 0.5, "prediction"] = "Charged.Off"
+
+# Have a look at the data
+head(testing)
+
+###########################
+# Evaluation
+
+# Create a confusion matrix (along with other measures) using the 
+# function 'confusionMatrix' from the caret package
+
+confusionMatrix(data = testing$prediction, testing$loan_status)
+
+options(scipen = 999)
+testing$probability
+
+
+prob <- predict(data.glm,new_data[,-1],type="response")
+
+## Function to run through different combinations of glm models
+
+new_data <- read_csv("/Users/corinnamm/Documents/GitHub/DAM_Assignment2_CM/03_DAM_Spring2017_Assignment_2/version2_validation_all_col_full.csv")
+new_data$pub_rec_bankruptcies <- as.character(new_data$pub_rec_bankruptcies)
+## remove experiemental rows from data
+# data2 <- select(data, -loan_status,-funded_amnt_inv_prop,-installment_prop, -total_p, -check)
+# data2 is used to ensure the same columns are selected for the validation set as those used to train the models
+# data2 <- select(data, -loan_status)
+new_data <- new_data[,colnames(data2)]
+
+## use data2 to find the mean of the non-NA data to impute into validation set
+new_data$annual_inc = ifelse(is.na(new_data$annual_inc),(mean(data2$annual_inc)),new_data$annual_inc)
+new_data$delinq_2yrs = ifelse(is.na(new_data$delinq_2yrs),(mean(data2$delinq_2yrs)),new_data$delinq_2yrs)
+new_data$earliest_cr_line = ifelse(is.na(new_data$earliest_cr_line),(mean(data2$earliest_cr_line)),new_data$earliest_cr_line)
+new_data$open_acc = ifelse(is.na(new_data$open_acc),(mean(data2$open_acc)),new_data$open_acc)
+new_data$pub_rec = ifelse(is.na(new_data$pub_rec),(mean(data2$pub_rec)),new_data$pub_rec)
+new_data$total_acc = ifelse(is.na(new_data$total_acc),(mean(data2$total_acc)),new_data$total_acc)
+new_data$inq_last_6mths = ifelse(is.na(new_data$inq_last_6mths),(mean(data2$inq_last_6mths)),new_data$inq_last_6mths)
+new_data$acc_now_delinq = ifelse(is.na(new_data$acc_now_delinq),(mean(data$acc_now_delinq)),new_data$acc_now_delinq)
+
+# check the tranformation before prediction
+summary(new_data)
+## lets look at the problem rows of the validation that have been imputed against the original
+new_NA <- read_csv("/Users/corinnamm/Documents/GitHub/DAM_Assignment2_CM/03_DAM_Spring2017_Assignment_2/version2_validation_25col_NA.csv")
+temp <- left_join(new_NA,new_data, by = "member_id")
+
+# check that the new data has the same length as required post transformation
+nrow(new_data)
+ncol(new_data)
+table(is.na(new_data))
+str(new_data)
+
+
+# new_data <- validation_cleaned_data_nick
+# problem_rows_func(new_data_original)
+# new_NA <- (validation_cleaned_data_nick, member_id == problem_rows[,"member_id"][[1]])
+
+## Predictions for the validation set for the best glm model
+# data.glm$formula
+# loan_status ~ loan_amnt + purpose + funded_amnt + term + int_rate + 
+#   annual_inc + dti + installment + total_pymnt + total_rec_late_fee + 
+#   last_pymnt_amnt + emp_length + grade
+testing <- mutate(testing, loan_status = if_else(loan_status == "Fully.Paid",0,1))
+testing_prediction = prediction(testing$probability, testing$loan_status)
+test_tpr_fpr = performance(testing_prediction, "tpr","fpr")
+data.test.auc = performance(testing_prediction, "auc")
+auc = unlist(slot(data.test.auc, "y.values"))
+auc
+##
+prediction_prob = predict(data.glm, newdata = new_data[,-1],
+                                type = "response")
+
+new_data$probability = predict(data.glm, newdata = new_data[,-1],
+                                 type = "response")
+
+new_data$prediction = "Fully.Paid"
+new_data[new_data$probability >= 0.5, "prediction"] = "Charged.Off"
+
+new_submission <- select(new_data, member_id, probability)
+table(is.na(new_submission))
+# write_csv <- write_csv(new_submission, paste0(Original_Data_Location, "glm_submission_oct2_v4.csv"))
+# write_csv <- write_csv(new_submission, paste0(Original_Data_Location, "glm_submission_oct2_v3.csv"))
+
+### PLOT AUC RESULTS
+kaggle30pct <- data.frame(AUC = c(0.99731,0.98587,0.99727,0.99564, 0.98194,0.97813,0.98095,0.98053,0.97435,0.98095, 0.97343),
+                          model_name = c("SVM_no_addr_state", "glm_feature_selected", "svm_all_vars", "lasso_all_var","lasso_excl_state","bag_cart_2_subgrade", "svm_var_select", "lasso_var_selectv1", "nnet_var_select", "svm_var_selectv1","bag_cart_1_grade"))
+kaggle30pct <<- as.data.frame(kaggle30pct[order(-kaggle30pct$AUC),])
+row.names(kaggle30pct) = seq(1:11)
+kaggle30pct$model_name <- factor(kaggle30pct$model_name, levels = kaggle30pct$model_name[order(kaggle30pct$AUC)]) 
+names(kaggle30pct) <- c("AUC Score", "Model")
+ggplot(kaggle30pct, aes(y = `AUC Score`, x=Model, fill = `AUC Score`)) +geom_col() +coord_flip() + labs(title = "The Submitted Models by AUC Score")
+
+```
+
+## Clare's code Snipet
+
+```{r, eval=F}
+###CLARE MACLEAN EXPLORATION CODE 
+##exploration code
+
+library(tidyverse)
+library(lubridate)
+library(glmnet)
+library(caret)
+library(plyr)
+setwd("")
+default <- read_csv("training.csv")
+View(default)
+
+#count target distribution
+table(default$loan_status)
+#Charged.Off  Fully.Paid 
+#  5670       34116 
+prop.table(table(default$loan_status))
+#Charged.Off  Fully.Paid 
+# 0.1425124   0.8574876 
+#another class imbalance problem
+
+#look at proportion of categories in each of the variables (where applicable)
+default_table <- subset(default, select = c("term", "grade", "sub_grade", "emp_length", "home_ownership", "verification_status", "loan_status", "pymnt_plan", "purpose", "addr_state", 
+                                            "delinq_2yrs", "inq_last_6mths", "open_acc", "pub_rec", "total_acc", "initial_list_status",
+                                            "out_prncp", "out_prncp_inv", "collections_12_mths_ex_med", "policy_code", "application_type",
+                                            "acc_now_delinq", "delinq_amnt", "pub_rec_bankruptcies", "tax_liens", "hardship_flag"))
+
+default_table %>% lapply(table)
+
+#get rid of variables with only one category/value 
+default_noID <- default[,c(2:42)]
+default_noID_updated <- within(default_noID, rm("initial_list_status","out_prncp", "out_prncp_inv", "collections_12_mths_ex_med", "policy_code", "application_type",
+                                                "acc_now_delinq", "delinq_amnt", "tax_liens", "hardship_flag", "pymnt_plan"))
+#default corr plot with numeric variables
+library(corrplot)
+par(mfrow = c(1,1))
+default_corplot <- default_noID_updated[sapply(default_noID_updated, function(x) is_integer(x) || is_double(x))]                                               
+corrplot(cor(default_corplot)) 
+cor(default_corplot)
+#look at how similar the correlated columns are 
+library(compare)
+compare(default_noID_updated["loan_amnt"], default_noID_updated["funded_amnt"])
+
+#density plots
+lapply(names(default_noID_updated),
+       function(i) 
+         ggplot(default_noID_updated, aes_string(x=i, colour = as.factor(default_noID_updated$loan_status))) + geom_density())
+
+
+#find out how many values in funded_amnt and loan_amnt differ from each other
+#clean_default[!clean_default$loan_amnt%in%clean_default$funded_amnt,]
+test <- mutate(data,check_sameness = ifelse(loan_amnt == funded_amnt, 1,0))
+test_tot_pay <- mutate(clean_default, check_sameness = ifelse(total_pymnt == total_pymnt_inv, 1,0))
+#plot the difference
+plot(clean_default$loan_amnt, clean_default$funded_amnt)
+
+#look at clean data 
+clean_default <- read_csv("clean_data_30var 2.csv")
+clean_default <- clean_default %>% mutate_if(is.character, factor)
+
+#create a correlation plot of the numeric variables in the data
+library(corrplot)
+par(mfrow = c(1,1))
+default_corplot_clean <- clean_default[sapply(clean_default, function(x) is_integer(x) || is_double(x))]
+default_corplot_clean <- within(default_corplot_clean, rm("earliest_cr_line"))
+corrplot(cor(default_corplot_clean)) 
+
+#transform target loan_status 
+clean_default$loan_status <- ifelse(clean_default$loan_status == "Charged.Off",1,0)
+#try to do a vif on the variables
+clean_default_no_ID <- within(clean_default, rm("X1"))
+lm.fit <- lm(loan_status ~.-grade, data = clean_default)
+
+#look at the variance inflation factors in the variables
+#install.packages("car")
+library(car)
+alias(loan_status ~., data = clean_default)
+#need to remove grade to run vif as it is exactly colinear with sub grade
+#https://statisticalhorizons.com/multicollinearity
+"vif"(lm.fit, na.action = na.exclude)
+#                            GVIF Df GVIF^(1/(2*Df))
+#X1                     1.003578  1        1.001787
+#loan_amnt             28.919163  1        5.377654
+#funded_amnt          180.709389  1       13.442819
+#funded_amnt_inv       96.610384  1        9.829058
+#term                   5.454204  1        2.335424
+#int_rate              25.822923  1        5.081626
+#installment           54.023859  1        7.350092
+#sub_grade             33.672903 34        1.053077
+#emp_length             1.291730 10        1.012881
+#home_ownership         1.467463  4        1.049110
+#annual_inc             1.253627  1        1.119655
+#verification_status    1.339877  2        1.075886
+#purpose                1.420056 13        1.013580
+#addr_state             1.367149 49        1.003196
+#dti                    1.293329  1        1.137246
+#delinq_2yrs            1.087045  1        1.042615
+#earliest_cr_line       1.403015  1        1.184489
+#inq_last_6mths         1.108566  1        1.052884
+#open_acc               2.035325  1        1.426648
+#pub_rec                3.494421  1        1.869337
+#revol_bal              1.403887  1        1.184857
+#total_acc              2.401379  1        1.549638
+#total_pymnt          319.574523  1       17.876647
+#total_pymnt_inv      135.167417  1       11.626152
+#total_rec_prncp      114.729746  1       10.711197
+#total_rec_int         24.550416  1        4.954838
+#total_rec_late_fee     1.049715  1        1.024556
+#last_pymnt_amnt        2.143938  1        1.464219
+#pub_rec_bankruptcies   4.741866  3        1.296159
+
+#adjust variables to see vifs 
+View(clean_default)
+summary(lm.fit)
+lm.fit_select <- lm(loan_status ~.-grade -X1-funded_amnt - total_pymnt, data = clean_default)
+summary(lm.fit_select)
+"vif"(lm.fit_select, na.action = na.exclude)
+#adjust variables to see vifs - this time with subgrade 
+lm.fit_select2 <- lm(loan_status ~.-sub_grade-X1-funded_amnt-total_pymnt-funded_amnt-total_pymnt, data = clean_default)
+summary(lm.fit_select2)
+"vif"(lm.fit_select2, na.action = na.exclude)
+#                       GVIF Df GVIF^(1/(2*Df))
+#loan_amnt            19.510384  1        4.417056
+#term                  3.310691  1        1.819530
+#int_rate             15.116729  1        3.888024
+#installment          18.854630  1        4.342192
+#grade                15.485037  6        1.256491
+
+#look at vif if we remove installment
+lm.fit_select3 <- lm(loan_status ~.-grade-X1-funded_amnt-total_pymnt-funded_amnt_inv-total_pymnt_inv-installment, data = clean_default)
+summary(lm.fit_select3)
+"vif"(lm.fit_select3, na.action = na.exclude)
+#GVIF Df GVIF^(1/(2*Df))
+#loan_amnt             4.959457  1        2.226984
+#term                  1.902089  1        1.379162
+#int_rate             24.162507  1        4.915537
+#sub_grade            30.068336 34        1.051325
+#emp_length            1.285963 10        1.012655
+
+#plot of installment vs loan amount with grade colour facet 
+ggplot(clean_default, aes(x = installment, y = loan_amnt, colour = as.factor(grade))) + geom_point() 
+
+#read in new clean data 
+clean_just_default <- read_csv("clean_justified_data_25var.csv")
+clean_just_default2 <- read_csv("modellingdata1.csv")
+clean_just_default <- clean_just_default %>% mutate_if(is.character, factor)
+```
+# Modeling code Clare
+
+```{r, eval = F}
+####
+###CLARE MACLEAN MODEL CODE 
+#model code
+##########################
+###lasso model code#####
+#install.packages("glmnet")
+library(glmnet)
+library(caret)
+
+# CRISP DM - create data partition row list
+set.seed(42)
+clean_just_default <- read_csv("clean_justified_data_25var.csv")
+clean_just_default <- clean_just_default %>% mutate_if(is.character, factor)
+clean_just_default_no_ID <- within(clean_just_default, rm("member_id"))
+train = createDataPartition(y = clean_just_default_no_ID$loan_status, p = 0.7, list = F)
+# partition default data - remove the variable Store7
+training = clean_just_default_no_ID[train, ]
+testing = clean_just_default_no_ID[-train, ]
+
+# glmnet  requires data be in separate x and y sets.  
+# the predictor set, x, must be a matrix
+x = model.matrix(~ ., training[, -10])
+y = training$loan_status
+
+
+###########################
+# Lasso Regression
+
+set.seed(42)
+# alpha = 1 specifies lasso regression
+cv.fit_lasso = cv.glmnet(x, y, family = 'binomial', alpha = 1)
+
+# Results
+plot(cv.fit_lasso)
+cv.fit_lasso$lambda.min
+cv.fit_lasso$lambda.1se
+coef(cv.fit_lasso, s = cv.fit_lasso$lambda.min)
+
+prediction_lasso = predict(cv.fit_lasso$glmnet.fit, newx = model.matrix(~ ., testing[, -10]), 
+                           type = "class",
+                           s = cv.fit_lasso$lambda.min)
+
+lasso_confusion = confusionMatrix(data = prediction_lasso, testing$loan_status)
+#lasso_confusion
+#Prediction    Charged.Off Fully.Paid
+#Charged.Off        1627          2
+#Fully.Paid           74      10232
+
+#Accuracy : 0.9936        
+#95% CI : (0.992, 0.995)
+#No Information Rate : 0.8575        
+#P-Value [Acc > NIR] : < 2.2e-16 
+#Kappa : 0.9735        
+#Mcnemar's Test P-Value : 3.816e-16     
+
+#Sensitivity : 0.9565        
+#Specificity : 0.9998        
+#Pos Pred Value : 0.9988        
+#Neg Pred Value : 0.9928        
+#Prevalence : 0.1425        
+#Detection Rate : 0.1363        
+#Detection Prevalence : 0.1365        
+#Balanced Accuracy : 0.9782        
+
+#'Positive' Class : Charged.Off
+
+#find the AUC
+library(ROCR)
+prediction_lasso_prob = predict(cv.fit_lasso$glmnet.fit, newx = model.matrix(~ ., testing[, -10]), 
+                                type = "response",
+                                s = cv.fit_lasso$lambda.min)
+
+testing$probability = predict(cv.fit_lasso$glmnet.fit, newx = model.matrix(~ ., testing[, -10]), 
+                              type = "response",
+                              s = cv.fit_lasso$lambda.min)
+testing_prediction = prediction(testing$probability, testing$loan_status)
+test_tpr_fpr = performance(testing_prediction, "tpr","fpr")
+data.test.auc = performance(testing_prediction, "auc")
+auc = unlist(slot(data.test.auc, "y.values"))
+auc
+#[1] 0.9928011
+
+#predict with validation set 
+validation_default <- read_csv("cleaned_validation.csv")
+validation_default <- validation_default %>% mutate_if(is.character, factor)
+#there's missing values in the data set 
+names(which(colSums(is.na(validation_default))>0))
+[1] "annual_inc"       "delinq_2yrs"      "earliest_cr_line" "inq_last_6mths"  
+[5] "open_acc"         "pub_rec"          "total_acc"       
+names(which(colSums(is.na(validation_default_test))>0))
+#impute data to reduct missing values and remove earliest_cr_line variable is it's a date 
+library(randomForest)
+validation_default <- na.roughfix(validation_default[,-15])
+#this doesn't work
+validation_default$prediction = predict(cv.fit_lasso$glmnet.fit, newx = model.matrix(~ ., validation_default[, -1]), 
+                                             type = "class",
+                                             s = cv.fit_lasso$lambda.min)
+
+##################################
+##################################
+#svm model 
+
+#load e1071 if not loaded
+library(e1071)
+
+#data
+##data
+clean_just_default <- read_csv("clean_justified_data_25var.csv")
+clean_just_default <- clean_just_default %>% mutate_if(is.character, factor)
+clean_just_default_no_date <- within(clean_just_default, rm("earliest_cr_line"))
+set.seed(42)
+clean_just_default_no_date[,"train"] <- ifelse(runif(nrow(clean_just_default_no_date))<0.8,1,0)
+#write dataframe to disk to check
+#write.csv(clean_just_default_no_date,"clean_just_default.csv")
+#separate training and test sets
+trainset <- clean_just_default_no_date[clean_just_default_no_date$train==1,]
+testset <- clean_just_default_no_date[clean_just_default_no_date$train==0,]
+trainColNum <- grep("train",names(trainset))
+typeColNum <- grep("loan_status",names(clean_just_default_no_date))
+trainset <- trainset[,-trainColNum]
+testset <- testset[,-trainColNum]
+
+#Try linear kernel...
+svm_model<- svm(loan_status~ .-member_id, data=trainset, method="C-classification", kernel="linear", probability = TRUE)
+pred_train <- predict(svm_model,trainset)
+mean(pred_train==trainset$loan_status)
+#[1] 0.9931981
+pred_test <- predict(svm_model,testset)
+mean(pred_test==testset$loan_status)
+#[1] 0.992279
+svm_confusion = confusionMatrix(data = pred_test, testset$loan_status)
+
+#Prediction    Charged.Off Fully.Paid
+#Charged.Off        1075          0
+#Fully.Paid           62       6893
+
+#Accuracy : 0.9923          
+##95% CI : (0.9901, 0.9941)
+#No Information Rate : 0.8584          
+#P-Value [Acc > NIR] : < 2.2e-16       
+
+#Kappa : 0.9675          
+#Mcnemar's Test P-Value : 9.408e-15       
+
+#Sensitivity : 0.9455          
+#Specificity : 1.0000          
+#Pos Pred Value : 1.0000          
+#Neg Pred Value : 0.9911          
+#Prevalence : 0.1416          
+#Detection Rate : 0.1339          
+#Detection Prevalence : 0.1339          
+#Balanced Accuracy : 0.9727          
+
+#'Positive' Class : Charged.Off 
+
+#predict on validation 
+#add 50th level to addr state as it currently on has 49
+validation_default$addr_state <- factor(validation_default$addr_state, levels = c("AK", "AL", "AR", "AZ", "CA", "CO", "CT", "DC", "DE", "FL", "GA", "HI", "IA", "ID", "IL",
+                                                                            "IN", "KS", "KY", "LA", "MA", "MD", "ME", "MI", "MN", "MO", "MS", "MT", "NC", "NE", "NH",
+                                                                            "NJ", "NM", "NV", "NY", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VA", "VT", "WA", "WI", "WV", "WY"))
+
+#create a prediction                                                                                                                                                    
+validation_test_svm <- validation_default
+validation_test_svm$prediction <- predict(svm_model,validation_test_svm)
+validation_test_svm$probability <- attr((predict(svm_model, validation_test_svm, probability = TRUE)), "probabilities")
+table(validation_test_svm$prediction)
+
+validation_svm_submission <- subset(validation_test_svm, select = c("member_id", "prediction", "probability"))
+write.csv(validation_svm_submission,file="validation_svm.csv")
+#Charged.Off  Fully.Paid 
+#712        2037
+
+######################################
+#neural net model 
+
+library(nnet)
+library(NeuralNetTools)
+library(caret)
+###create a test and train set 
+samp = sample(1:length(clean_just_default_no_date$loan_status), 100)
+
+train = clean_just_default_no_date[-samp, ]
+test = clean_just_default_no_date[samp, ]
+
+nn_fit = nnet(loan_status ~ .-member_id, train, size=8)
+plotnet(nn_fit, nid = F)
+
+nnet_confusion =confusionMatrix(predict(nn_fit, test, type="class"), test$loan_status)
+
+#nnet_confusion
+#Prediction    Charged.Off Fully.Paid
+#Charged.Off          15          0
+#Fully.Paid            1         84
+
+#Accuracy : 0.99            
+#95% CI : (0.9455, 0.9997)
+#No Information Rate : 0.84            
+#P-Value [Acc > NIR] : 5.37e-07        
+
+#Kappa : 0.9618          
+#Mcnemar's Test P-Value : 1               
+
+#Sensitivity : 0.9375          
+#Specificity : 1.0000          
+#Pos Pred Value : 1.0000          
+#Neg Pred Value : 0.9882          
+#Prevalence : 0.1600          
+#Detection Rate : 0.1500          
+#Detection Prevalence : 0.1500          
+#Balanced Accuracy : 0.9688          
+
+#'Positive' Class : Charged.Off  
+
+#create a prediction for validation test 
+validation_test_nnet <- validation_test
+nnet_val=table(predict(nn_fit, validation_test_nnet, type="class"))
+nnet_val
+validation_test_nnet$probability <- predict(nn_fit, validation_test_nnet, type="raw")
+validation_nnet_submission <- subset(validation_test_nnet, select = c("member_id", "probability"))
+write.csv(validation_nnet_submission,file="validation_nnet.csv")
+```
+
+# Nick Code snipet
+
+```{r, eval=FALSE}
+
+```
+
+## Functions Script (Corinna + In-class functions)
+
+```{r, eval = F}
+
+```
+

@@ -798,3 +798,4 @@ kaggle30pct$model_name <- factor(kaggle30pct$model_name, levels = kaggle30pct$mo
 names(kaggle30pct) <- c("AUC Score", "Model")
 ggplot(kaggle30pct, aes(y = `AUC Score`, x=Model, fill = `AUC Score`)) +geom_col() +coord_flip() + labs(title = "The Submitted Models by AUC Score")
 
+rm(kaggle30pct)
